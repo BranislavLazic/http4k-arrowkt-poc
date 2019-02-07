@@ -1,21 +1,48 @@
 package com.github.branislavlazic
 
+import arrow.core.None
+import arrow.core.Some
+import arrow.core.getOrElse
+import com.fasterxml.jackson.databind.JsonNode
 import org.http4k.core.*
-import org.http4k.format.Jackson.auto
+import org.http4k.format.Jackson
+import org.http4k.format.Jackson.asJsonArray
+import org.http4k.format.Jackson.json
+import org.http4k.lens.BodyLens
 import org.http4k.routing.RoutingHttpHandler
 import org.http4k.routing.bind
 import org.http4k.routing.routes
+import java.util.*
 import java.util.concurrent.ConcurrentLinkedQueue
 
+
 class EmployeeApi(private val employeeCache: ConcurrentLinkedQueue<Employee>) {
-    private val employeeLens = Body.auto<Employee>().toLens()
-    private val employeeListLens = Body.auto<List<Employee>>().toLens()
+
+    private fun jsonToEmployee(node: JsonNode): Employee {
+        val name = node.get("name").asText()
+        val age = node.get("age").asInt()
+        return Employee(None, name, age)
+    }
+
+    private fun employeeToJson(employee: Employee): JsonNode {
+        return Jackson {
+            obj(
+                "id" to employee.id.map { Jackson.string(it.toString()) }.getOrElse { Jackson.nullNode() },
+                "name" to Jackson.string(employee.name),
+                "age" to Jackson.number(employee.age)
+            )
+        }
+    }
+
+    private val employeeLens: BodyLens<Employee> = Body.json().map { jsonToEmployee(it) }.toLens()
+    private val cacheToJsonArray = employeeCache.map { employeeToJson(it) }.asJsonArray()
 
     private fun createEmployeeRoute(): RoutingHttpHandler =
-        "/" bind Method.POST to { req ->
+        "/" bind Method.POST to { req: Request ->
             tryJsonParse {
-                validatedResponse(employeeLens(req).asValidated()) {
-                    employeeCache.add(it)
+                validatedResponse(employeeLens(req).asValidated()) { employee ->
+                    val generatedId = UUID.randomUUID()
+                    employeeCache.add(employee.copy(id = Some(generatedId)))
                     Response(Status.CREATED)
                 }
             }
@@ -23,7 +50,7 @@ class EmployeeApi(private val employeeCache: ConcurrentLinkedQueue<Employee>) {
 
     private fun getEmployeesRoute(): RoutingHttpHandler =
         "/" bind Method.GET to {
-            Response(Status.OK).with(employeeListLens of employeeCache.toList())
+            Response(Status.OK).with(Body.json().toLens() of cacheToJsonArray)
         }
 
     fun employeeRoutes(): RoutingHttpHandler {
