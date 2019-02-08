@@ -1,7 +1,7 @@
 package com.github.branislavlazic
 
-import arrow.core.None
 import arrow.core.Some
+import arrow.core.Try
 import arrow.core.getOrElse
 import com.fasterxml.jackson.databind.JsonNode
 import org.http4k.core.*
@@ -19,9 +19,10 @@ import java.util.concurrent.ConcurrentLinkedQueue
 class EmployeeApi(private val employeeCache: ConcurrentLinkedQueue<Employee>) {
 
     private fun jsonToEmployee(node: JsonNode): Employee {
+        val id = Try.invoke { node.get("id").asText() }.map { UUID.fromString(it) }.toOption()
         val name = node.get("name").asText()
         val age = node.get("age").asInt()
-        return Employee(None, name, age)
+        return Employee(id, name, age)
     }
 
     private fun employeeToJson(employee: Employee): JsonNode {
